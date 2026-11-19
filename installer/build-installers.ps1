@@ -11,3 +11,8 @@ foreach ($name in @('parent','client')) {
     & $Compiler "$PSScriptRoot\$name.iss"
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
 }
+
+Compress-Archive -LiteralPath "$PSScriptRoot\dist\TimeGuard-Parent-Setup.exe" `
+    -DestinationPath "$PSScriptRoot\dist\TimeGuard-Parent-Setup.zip" -CompressionLevel Optimal -Force
+Compress-Archive -LiteralPath "$PSScriptRoot\dist\TimeGuard-Client-Setup.exe" `
+    -DestinationPath "$PSScriptRoot\dist\TimeGuard-Client-Setup.zip" -CompressionLevel Optimal -Force
