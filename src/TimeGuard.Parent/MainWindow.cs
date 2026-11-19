@@ -67,9 +67,9 @@ public sealed class MainWindow : Window
 
     private void BuildView()
     {
-        // Макет рисуется в фиксированной «дизайнерской» ширине. На обычных
-        // экранах он остаётся в масштабе 1:1, чтобы текст и векторная графика
-        // не проходили через промежуточное уменьшенное растровое изображение.
+        // Макет рисуется в фиксированной «дизайнерской» ширине и компактно
+        // уменьшается до ширины родительского окна. Текст использует Ideal,
+        // а PNG масштабируются отдельным качественным режимом.
         const double DesignWidth = 1040;
         var root = new StackPanel { Margin = new Thickness(24, 10, 24, 10), Width = DesignWidth, Background = Bg };
         root.Children.Add(BuildHeader());
@@ -83,11 +83,9 @@ public sealed class MainWindow : Window
         double designHeight = Math.Max(600, root.DesiredSize.Height);
         Rect wa = SystemParameters.WorkArea;
         double fullWidth = DesignWidth + root.Margin.Left + root.Margin.Right;
-        // Do not shrink the complete visual tree to fit a compact preview width.
-        // WPF then rasterizes text and vector icons at the smaller intermediate size.
-        // Keep a 1:1 DIP layout whenever the work area allows it and only scale on
-        // unusually small screens.
-        double scale = Math.Min(1.0, Math.Min((wa.Height - 70) / designHeight, (wa.Width - 40) / fullWidth));
+        // Keep the compact parent window while using the sharper text and image
+        // rendering settings configured above.
+        double scale = Math.Min(610 / fullWidth, Math.Min((wa.Height - 70) / designHeight, (wa.Width - 40) / fullWidth));
         if (scale < 0.999)
         {
             root.LayoutTransform = new ScaleTransform(scale, scale);
