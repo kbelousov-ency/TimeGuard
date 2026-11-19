@@ -14,14 +14,25 @@ function Native([string]$File, [string[]]$Arguments) {
     & $File @Arguments | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "$File failed: $LASTEXITCODE" }
 }
+function Get-InteractiveUserName {
+    $qualified = $null
+    try { $qualified = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName } catch {}
+    if ([string]::IsNullOrWhiteSpace($qualified)) { $qualified = [Environment]::UserName }
+    if ($qualified -match '\\') { return ($qualified -split '\\')[-1] }
+    if ($qualified -match '@') { return ($qualified -split '@')[0] }
+    return $qualified
+}
 try {
     Import-Module Microsoft.PowerShell.LocalAccounts -ErrorAction Stop
-    if (!$Remove -and $ChildUser) {
+    if (!$Remove) {
+        # Всегда используем текущую интерактивную учётную запись. Переданное
+        # старым сценарием имя намеренно игнорируется.
+        $ChildUser = Get-InteractiveUserName
         $user = Get-LocalUser -Name $ChildUser -ErrorAction SilentlyContinue
-        if (!$user) { throw 'Учётная запись Windows не найдена. Укажите существующую учётку ребёнка. Новые учётные записи не создаются.' }
-        if (!$user.Enabled) { throw 'Учётная запись Windows отключена.' }
+        if (!$user) { throw "Текущая учётная запись Windows '$ChildUser' не найдена среди локальных пользователей." }
+        if (!$user.Enabled) { throw "Текущая учётная запись Windows '$ChildUser' отключена." }
         $admins = Get-LocalGroupMember -SID 'S-1-5-32-544'
-        if ($admins.SID.Value -contains $user.SID.Value) { throw 'Укажите стандартную учётную запись ребёнка без прав администратора.' }
+        if ($admins.SID.Value -contains $user.SID.Value) { throw "Текущая учётная запись '$ChildUser' имеет права администратора." }
     }
     $service = Get-Service TimeGuard -ErrorAction SilentlyContinue
     if ($service) { Stop-Service TimeGuard; $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30)) }
@@ -40,7 +51,7 @@ try {
         }
         exit 0
     }
-    if (!$user) { throw 'Укажите существующую учётную запись ребёнка.' }
+    if (!$user) { throw "Текущая учётная запись Windows '$ChildUser' не найдена." }
     $users = Get-LocalGroupMember -SID 'S-1-5-32-545'
     if ($users.SID.Value -notcontains $user.SID.Value) { Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user }
     $data = Join-Path $env:ProgramData 'TimeGuard'

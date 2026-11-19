@@ -29,6 +29,18 @@ function Assert-Admin {
 }
 Assert-Admin
 
+function Get-InteractiveUserName {
+    $qualified = $null
+    try { $qualified = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName } catch {}
+    if ([string]::IsNullOrWhiteSpace($qualified)) { $qualified = [Environment]::UserName }
+    if ($qualified -match '\\') { return ($qualified -split '\\')[-1] }
+    if ($qualified -match '@') { return ($qualified -split '@')[0] }
+    return $qualified
+}
+
+# Привязка всегда идёт к текущей интерактивной учётной записи.
+$ChildUserName = Get-InteractiveUserName
+
 $exe = Join-Path $InstallDir "TimeGuard.Service.exe"
 
 # 1. Остановить и удалить старую службу, если была
