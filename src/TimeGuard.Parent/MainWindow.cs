@@ -54,6 +54,11 @@ public sealed class MainWindow : Window
         _codec = new TimeGuardCodec(Convert.FromBase64String(cfg.SecretBase64), cfg.ClientMachineId);
         _onlineServer = new ParentOnlineServer(cfg);
         _onlineServer.Start();
+        _onlineServer.ClientDiscovered += host => Dispatcher.Invoke(() =>
+        {
+            _cfg.ClientHost = host;
+            _store.Save(_cfg);
+        });
         Closed += async (_, _) => await _onlineServer.DisposeAsync();
 
         Title = "TimeGuard — родитель";

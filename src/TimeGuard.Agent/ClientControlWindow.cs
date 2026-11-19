@@ -41,10 +41,11 @@ public sealed class ClientControlWindow : Window
         actions.Children.Add(Button("Проверить обновление", UpdateAsync));
         panel.Children.Add(actions);
 
-        panel.Children.Add(new TextBlock { Text = "Адрес приложения родителя", Margin = new Thickness(0, 16, 0, 5) });
-        _parentHost = new TextBox { FontSize = 16, Padding = new Thickness(8), ToolTip = "Например, 192.168.1.10" };
+        panel.Children.Add(new TextBlock { Text = "Соединение с родителем", Margin = new Thickness(0, 16, 0, 5) });
+        _parentHost = new TextBox { Text = "Автоопределение в локальной сети", FontSize = 16, Padding = new Thickness(8), IsReadOnly = true };
         panel.Children.Add(_parentHost);
         var requestRow = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        _message = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Foreground = Brushes.DarkSlateGray };
         requestRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
         requestRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         requestRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -54,12 +55,11 @@ public sealed class ClientControlWindow : Window
         Grid.SetColumn(label, 1); requestRow.Children.Add(label);
         var request = Button("Запросить время", () =>
         {
-            if (int.TryParse(_minutes.Text, out int minutes)) TimeRequested?.Invoke(_parentHost.Text.Trim(), minutes);
+            if (int.TryParse(_minutes.Text, out int minutes)) TimeRequested?.Invoke(string.Empty, minutes);
             else _message.Text = "Введите количество минут.";
         });
         Grid.SetColumn(request, 2); requestRow.Children.Add(request);
         panel.Children.Add(requestRow);
-        _message = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Foreground = Brushes.DarkSlateGray };
         panel.Children.Add(_message);
         Content = panel;
         Loaded += (_, _) => _code.Focus();

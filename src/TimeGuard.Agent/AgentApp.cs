@@ -17,7 +17,6 @@ public sealed class AgentApp : Application
     private bool _locked;
     private bool _canExtend;
     private long _remaining;
-    private ExtendTimeWindow? _extension;
     private ClientControlWindow? _controlWindow;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -49,7 +48,6 @@ public sealed class AgentApp : Application
                 Dispatcher.Invoke(() =>
                 {
                     _primaryOverlay?.SetMessage(msg);
-                    _extension?.SetResult(ok, msg);
                     _controlWindow?.SetResult(ok, msg);
                 });
             _pipe.Disconnected += () =>
@@ -58,7 +56,6 @@ public sealed class AgentApp : Application
                     _canExtend = false;
                     _indicator?.SetCanExtend(false);
                     _indicator?.SetRemaining(0);
-                    _extension?.Close();
                     _controlWindow?.Close();
                 });
             _pipe.Start();
@@ -79,8 +76,6 @@ public sealed class AgentApp : Application
         _controlWindow?.SetRemaining(remainingSeconds);
         _canExtend = !locked && !night && remainingSeconds > 0;
         _indicator?.SetCanExtend(_canExtend);
-        if (!_canExtend) _extension?.Close();
-        else _extension?.SetRemaining(remainingSeconds);
 
         if (locked && !_locked)
         {

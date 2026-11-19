@@ -31,7 +31,7 @@ public sealed class OnlineControlWindow : Window
         panel.Children.Add(new TextBlock { Text = "Онлайн-управление клиентом", FontSize = 25, FontWeight = FontWeights.Bold });
         panel.Children.Add(new TextBlock { Text = "Команды работают даже при заблокированном экране клиента.", Margin = new Thickness(0, 6, 0, 16), Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Имя или IP компьютера ребёнка", Margin = new Thickness(0, 0, 0, 5) });
-        _host = new TextBox { Text = config.ClientHost, FontSize = 17, Padding = new Thickness(8), ToolTip = "Например, 192.168.1.25" };
+        _host = new TextBox { Text = config.ClientHost, FontSize = 17, Padding = new Thickness(8), IsReadOnly = true, ToolTip = "Адрес определяется автоматически в локальной сети" };
         panel.Children.Add(_host);
 
         _timer = new TextBlock { Text = "Статус ещё не запрошен", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 14) };
@@ -69,6 +69,7 @@ public sealed class OnlineControlWindow : Window
         }
         foreach (PendingOnlineRequest pending in _server.Pending) AddRequest(pending);
         _server.RequestReceived += AddRequest;
+        _server.ClientDiscovered += host => Dispatcher.Invoke(() => _host.Text = host);
         _status = new TextBlock { Text = "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Foreground = Brushes.DarkSlateGray };
         panel.Children.Add(_status);
         Content = panel;

@@ -27,6 +27,7 @@ public sealed class Worker(
     private bool? _lastSessionActive;
     private bool _timerWasRunning;
     private DateTimeOffset? _timerStartedAt;
+    private string _discoveredParentHost = string.Empty;
     private string _targetUser = string.Empty;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
@@ -79,6 +80,9 @@ public sealed class Worker(
             limit => activity.ReadRecent(limit),
             command => HandleOnlineCommand(_engine!, command));
         historyServer.Start(stoppingToken);
+        await using var discovery = new ParentDiscoveryListener(config.GetSecret(), config.MachineId);
+        discovery.ParentDiscovered += host => _discoveredParentHost = host;
+        discovery.Start(stoppingToken);
         activity.Write("Старт ПК (служба запущена).");
         var lastWall = DateTime.Now;
         var lastProcPoll = DateTime.MinValue;
@@ -336,13 +340,13 @@ public sealed class Worker(
         return new SubmitResult(true, "Таймер сброшен.", 0);
     }
 
-    private static async Task<SubmitResult> RequestParentTimeAsync(GuardConfig config, string host, int minutes)
+    private async Task<SubmitResult> RequestParentTimeAsync(GuardConfig config, string host, int minutes)
     {
         if (minutes is < 1 or > TimeGuardCodec.MaxMinutes)
         {
             return new SubmitResult(false, "Некорректное количество минут.", 0);
         }
-        string value = host.Trim();
+        string value = string.IsNullOrWhiteSpace(host) ? _discoveredParentHost : host.Trim();
         if (!value.Contains("://", StringComparison.Ordinal)) value = "http://" + value;
         if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? parsed))
         {

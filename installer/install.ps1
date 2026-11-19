@@ -80,6 +80,7 @@ sc.exe failureflag $ServiceName 1 | Out-Null
 
 # История доступна родительскому ПК только в частной локальной сети.
 netsh.exe advfirewall firewall add rule name="TimeGuard History" dir=in action=allow protocol=TCP localport=38765 profile=private | Out-Null
+netsh.exe advfirewall firewall add rule name="TimeGuard Discovery" dir=in action=allow protocol=UDP localport=38767 profile=private | Out-Null
 
 # 6. Учётная запись ребёнка (стандартная, без прав администратора)
 if ($CreateChildAccount) {

@@ -26,6 +26,7 @@ if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
 }
 
 netsh.exe advfirewall firewall delete rule name="TimeGuard History" | Out-Null
+netsh.exe advfirewall firewall delete rule name="TimeGuard Discovery" | Out-Null
 
 if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
 if ($PurgeData) { Remove-Item "$Env:ProgramData\TimeGuard" -Recurse -Force }

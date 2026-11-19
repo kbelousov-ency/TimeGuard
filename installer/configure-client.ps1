@@ -41,6 +41,7 @@ try {
     if ($Remove) {
         if ($service) { Native 'sc.exe' @('delete','TimeGuard') }
         & netsh.exe advfirewall firewall delete rule name="TimeGuard History" | Out-Null
+        & netsh.exe advfirewall firewall delete rule name="TimeGuard Discovery" | Out-Null
         $savedUser = Join-Path $InstallDir 'target-user.txt'
         if (Test-Path $savedUser) {
             $user = Get-LocalUser -Name (Get-Content $savedUser -Raw).Trim() -ErrorAction SilentlyContinue
@@ -69,6 +70,7 @@ try {
     if (!$service) { Native 'sc.exe' @('create','TimeGuard','binPath=',$exe,'start=','auto','obj=','LocalSystem') }
     Native 'sc.exe' @('failure','TimeGuard','reset=','86400','actions=','restart/5000/restart/5000/restart/5000')
     & netsh.exe advfirewall firewall add rule name="TimeGuard History" dir=in action=allow protocol=TCP localport=38765 profile=private | Out-Null
+    & netsh.exe advfirewall firewall add rule name="TimeGuard Discovery" dir=in action=allow protocol=UDP localport=38767 profile=private | Out-Null
     Start-Service TimeGuard
     (Get-Service TimeGuard).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
     exit 0

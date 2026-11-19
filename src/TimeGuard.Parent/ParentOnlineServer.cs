@@ -22,9 +22,12 @@ public sealed class ParentOnlineServer : IAsyncDisposable
     private readonly Dictionary<string, PendingOnlineRequest> _pending = new();
     private readonly object _gate = new();
     private TcpListener? _listener;
+    private UdpClient? _udp;
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private Task? _discoveryLoop;
     public event Action<PendingOnlineRequest>? RequestReceived;
+    public event Action<string>? ClientDiscovered;
 
     public ParentOnlineServer(ParentConfig config) => _config = config;
 
@@ -32,6 +35,8 @@ public sealed class ParentOnlineServer : IAsyncDisposable
     {
         _cts = new CancellationTokenSource();
         _loop = Task.Run(() => AcceptLoopAsync(_cts.Token));
+        _udp = new UdpClient(DiscoveryProtocol.Port) { EnableBroadcast = true };
+        _discoveryLoop = Task.Run(() => DiscoveryLoopAsync(_cts.Token));
     }
 
     public IReadOnlyList<PendingOnlineRequest> Pending
@@ -68,6 +73,42 @@ public sealed class ParentOnlineServer : IAsyncDisposable
         catch (OperationCanceledException) { }
         catch (SocketException) { }
         finally { _listener?.Stop(); }
+    }
+
+    private async Task DiscoveryLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var beacon = new DiscoveryBeacon
+                {
+                    Kind = DiscoveryProtocol.ParentKind,
+                    MachineId = _config.ClientMachineId,
+                    Name = Environment.MachineName,
+                    Port = HistoryProtocol.Port + 1,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                };
+                beacon.Signature = DiscoveryProtocol.Sign(Convert.FromBase64String(_config.SecretBase64), beacon);
+                byte[] bytes = Encoding.UTF8.GetBytes(DiscoveryProtocol.Serialize(beacon));
+                await _udp!.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, DiscoveryProtocol.Port)).ConfigureAwait(false);
+                Task<UdpReceiveResult> receive = _udp.ReceiveAsync(ct).AsTask();
+                Task completed = await Task.WhenAny(receive, Task.Delay(TimeSpan.FromSeconds(5), ct)).ConfigureAwait(false);
+                if (completed == receive)
+                {
+                    UdpReceiveResult packet = await receive.ConfigureAwait(false);
+                    DiscoveryBeacon? client = DiscoveryProtocol.Deserialize(Encoding.UTF8.GetString(packet.Buffer));
+                    if (client is not null && client.Kind == DiscoveryProtocol.ClientKind && client.MachineId == _config.ClientMachineId &&
+                        DiscoveryProtocol.IsValid(Convert.FromBase64String(_config.SecretBase64), client, DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                    {
+                        ClientDiscovered?.Invoke(packet.RemoteEndPoint.Address.ToString());
+                    }
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch (SocketException) { await Task.Delay(1000, ct).ConfigureAwait(false); }
+            catch (ObjectDisposedException) { break; }
+        }
     }
 
     private async Task HandleAsync(TcpClient client, CancellationToken ct)
@@ -143,7 +184,9 @@ public sealed class ParentOnlineServer : IAsyncDisposable
     {
         _cts?.Cancel();
         _listener?.Stop();
+        _udp?.Dispose();
         if (_loop is not null) await _loop.ConfigureAwait(false);
+        if (_discoveryLoop is not null) await _discoveryLoop.ConfigureAwait(false);
         _cts?.Dispose();
     }
 }
