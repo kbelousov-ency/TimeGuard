@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.IO;
-using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -16,6 +14,8 @@ public sealed class ClientControlWindow : Window
     private readonly TextBlock _remaining;
     private readonly TextBlock _message;
     private readonly Button _codeButton;
+    private readonly Button _updateButton;
+    private readonly ProgressBar _updateProgress;
     public event Action<string>? CodeSubmitted;
     public event Action? ResetRequested;
     public event Action<string, int>? TimeRequested;
@@ -38,8 +38,11 @@ public sealed class ClientControlWindow : Window
 
         var actions = new UniformGrid { Columns = 2, Margin = new Thickness(0, 10, 0, 0) };
         actions.Children.Add(Button("Сбросить таймер", () => ResetRequested?.Invoke()));
-        actions.Children.Add(Button("Проверить обновление", UpdateAsync));
+        _updateButton = Button("Проверить обновление", UpdateAsync);
+        actions.Children.Add(_updateButton);
         panel.Children.Add(actions);
+        _updateProgress = new ProgressBar { Height = 7, Minimum = 0, Maximum = 100, Visibility = Visibility.Collapsed, Margin = new Thickness(3, 5, 3, 0) };
+        panel.Children.Add(_updateProgress);
 
         panel.Children.Add(new TextBlock { Text = "Соединение с родителем", Margin = new Thickness(0, 16, 0, 5) });
         _parentHost = new TextBox { Text = "Автоопределение в локальной сети", FontSize = 16, Padding = new Thickness(8), IsReadOnly = true };
@@ -84,15 +87,31 @@ public sealed class ClientControlWindow : Window
 
     private async void UpdateAsync()
     {
+        _updateButton.IsEnabled = false;
+        _updateProgress.Visibility = Visibility.Visible;
+        _updateProgress.IsIndeterminate = true;
+        _message.Text = "Подготовка загрузки обновления…";
         try
         {
-            string path = Path.Combine(Path.GetTempPath(), "TimeGuard-Client-Setup-latest.exe");
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
-            byte[] data = await client.GetByteArrayAsync("https://github.com/kbelousov-ency/TimeGuard/releases/latest/download/TimeGuard-Client-Setup.exe");
-            await File.WriteAllBytesAsync(path, data);
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-            _message.Text = "Установщик обновления запущен.";
+            var progress = new Progress<TimeGuard.Core.DownloadProgress>(p =>
+            {
+                if (p.Percent is int percent)
+                {
+                    _updateProgress.IsIndeterminate = false;
+                    _updateProgress.Value = percent;
+                    _message.Text = $"Загрузка обновления: {percent}%";
+                }
+                else _message.Text = $"Загрузка обновления: {p.ReceivedBytes / 1024 / 1024} МБ";
+            });
+            string path = await TimeGuard.Core.UpdateDownloader.DownloadAsync("TimeGuard-Client-Setup.exe", progress);
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true, Verb = "runas" });
+            _message.Text = "Установщик запущен с правами администратора.";
         }
         catch (Exception ex) { _message.Text = $"Не удалось скачать обновление: {ex.Message}"; }
+        finally
+        {
+            _updateButton.IsEnabled = true;
+            _updateProgress.Visibility = Visibility.Collapsed;
+        }
     }
 }

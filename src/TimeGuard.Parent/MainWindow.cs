@@ -365,12 +365,25 @@ public sealed class MainWindow : Window
         buttons.Children.Add(online);
         var update = SecondaryButton(DrawDownloadIcon(Blue, 22), "Проверить обновление");
         update.Margin = new Thickness(0, 8, 0, 0);
+        var updateStatus = new TextBlock { Text = "", Foreground = Muted, FontSize = 13, Margin = new Thickness(4, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
         update.Click += async (_, _) =>
         {
-            try { _hint.Text = "Скачиваю обновление…"; await UpdateLauncher.DownloadAndLaunchAsync("TimeGuard-Parent-Setup.exe"); _hint.Text = "Установщик обновления запущен."; }
-            catch (Exception ex) { _hint.Text = $"Обновление не запущено: {ex.Message}"; }
+            update.IsEnabled = false;
+            updateStatus.Text = "Подготовка загрузки…";
+            try
+            {
+                var progress = new Progress<TimeGuard.Core.DownloadProgress>(p =>
+                {
+                    updateStatus.Text = p.Percent is int percent ? $"Загрузка обновления: {percent}%" : $"Загрузка обновления: {p.ReceivedBytes / 1024 / 1024} МБ";
+                });
+                await UpdateLauncher.DownloadAndLaunchAsync("TimeGuard-Parent-Setup.exe", progress);
+                updateStatus.Text = "Установщик запущен с правами администратора.";
+            }
+            catch (Exception ex) { updateStatus.Text = $"Обновление не запущено: {ex.Message}"; }
+            finally { update.IsEnabled = true; }
         };
         buttons.Children.Add(update);
+        buttons.Children.Add(updateStatus);
         Grid.SetColumn(buttons, 1);
         row.Children.Add(buttons);
 
