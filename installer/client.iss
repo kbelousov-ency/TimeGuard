@@ -2,7 +2,7 @@
 SetupIconFile=..\assets\app.ico
 AppId=TimeGuard.Client
 AppName=TimeGuard Client
-AppVersion=1.2.2
+AppVersion=1.2.3
 DefaultDirName={autopf}\TimeGuard
 PrivilegesRequired=admin
 OutputDir=dist
@@ -23,10 +23,15 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 [Code]
 var
   PairPage: TInputFileWizardPage;
+  FindData: TFindRec;
 procedure InitializeWizard;
 begin
   PairPage := CreateInputFilePage(wpSelectDir, 'Сопряжение с родителем', 'Выберите файл, экспортированный из приложения родителя.', 'Ограничение будет привязано к текущей учётной записи Windows. При обновлении поле можно оставить пустым.');
-  PairPage.Add('Файл сопряжения:', 'Файл сопряжения (*.json)|*.json', '.json');
+  PairPage.Add('Файл сопряжения:', 'Файлы сопряжения (*.tgpair.json;*.json)|*.tgpair.json;*.json|Все файлы (*.*)|*.*', '.json');
+  if FindFirst(ExpandConstant('{src}\*.tgpair.json'), FindData) then begin
+    PairPage.Values[0] := ExpandConstant('{src}\') + FindData.Name;
+    FindClose(FindData);
+  end;
 end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin

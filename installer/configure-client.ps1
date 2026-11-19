@@ -24,6 +24,15 @@ function Get-InteractiveUserName {
 }
 try {
     Import-Module Microsoft.PowerShell.LocalAccounts -ErrorAction Stop
+    if (!$Remove -and [string]::IsNullOrWhiteSpace($PairingFile)) {
+        $nearby = @(
+            (Join-Path $InstallDir '*.tgpair.json'),
+            (Join-Path $InstallDir 'pairing*.json'),
+            (Join-Path $PSScriptRoot '*.tgpair.json'),
+            (Join-Path $PSScriptRoot 'pairing*.json')
+        ) | ForEach-Object { Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue } | Select-Object -First 1
+        if ($nearby) { $PairingFile = $nearby.FullName }
+    }
     if (!$Remove) {
         # Всегда используем текущую интерактивную учётную запись. Переданное
         # старым сценарием имя намеренно игнорируется.
@@ -63,6 +72,7 @@ try {
         $cfg = $json | ConvertFrom-Json
         if (!$cfg.MachineId -or [Convert]::FromBase64String($cfg.SecretBase64).Length -lt 16 -or [Convert]::FromBase64String($cfg.MasterHashBase64).Length -ne 32 -or [Convert]::FromBase64String($cfg.MasterSaltBase64).Length -ne 16) { throw 'Invalid pairing file.' }
         Native (Join-Path $InstallDir 'TimeGuard.Service.exe') @('--import',$PairingFile)
+        if (!(Test-Path (Join-Path $data 'config.dat'))) { throw "Сопряжение не импортировано: config.dat не создан." }
     } elseif (!(Test-Path (Join-Path $data 'config.dat'))) { throw 'Pairing file is required for a new installation.' }
     Native (Join-Path $InstallDir 'TimeGuard.Service.exe') @('--set-user',$ChildUser)
     [IO.File]::WriteAllText((Join-Path $InstallDir 'target-user.txt'),$ChildUser)
