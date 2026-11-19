@@ -4,10 +4,10 @@
 
 ## Установка
 
-Готовые универсальные установщики находятся в `installer/dist`:
+Готовые универсальные установщики доступны в [последнем GitHub Release](https://github.com/kbelousov-ency/TimeGuard/releases/latest):
 
-- **TimeGuard-Parent-Setup.exe** — приложение родителя.
-- **TimeGuard-Client-Setup.exe** — служба и агент на ПК ребёнка.
+- [**TimeGuard-Parent-Setup.exe**](https://github.com/kbelousov-ency/TimeGuard/releases/latest/download/TimeGuard-Parent-Setup.exe) — приложение родителя.
+- [**TimeGuard-Client-Setup.exe**](https://github.com/kbelousov-ency/TimeGuard/releases/latest/download/TimeGuard-Client-Setup.exe) — служба и агент на ПК ребёнка.
 
 Все зависимости, включая .NET, встроены в установщики. Отдельно устанавливать .NET или переносить папку с DLL не нужно. На ПК ребёнка при первой установке нужно передать **EXE и файл сопряжения JSON**.
 

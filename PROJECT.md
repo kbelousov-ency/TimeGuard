@@ -182,7 +182,7 @@ Interactive — чтение/запись. Служба (session 0) шлёт с�
 
 ### Универсальные EXE-установщики
 
-`installer/dist/TimeGuard-Parent-Setup.exe` и `TimeGuard-Client-Setup.exe` включают .NET и все файлы.
+Готовые `TimeGuard-Parent-Setup.exe` и `TimeGuard-Client-Setup.exe` публикуются в [GitHub Releases](https://github.com/kbelousov-ency/TimeGuard/releases) и включают .NET и все файлы. При локальной сборке они появляются в `installer/dist`.
 Родитель устанавливается в `%LOCALAPPDATA%\Programs\TimeGuardParent`, клиент — в Program Files с UAC.
 Сначала на родительском ПК создайте пару и экспортируйте JSON через «Экспортировать файл сопряжения…».
 Перенесите JSON с клиентским EXE, выберите файл в установщике и укажите стандартную учётную запись
