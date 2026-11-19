@@ -174,6 +174,10 @@ Interactive — чтение/запись. Служба (session 0) шлёт с�
 - `OverlayWindow.cs` — полноэкранная заглушка на всех мониторах, topmost, без сворачивания/закрытия,
   возврат на передний план каждые 700 мс, поля ввода кода (цифры, любая раскладка) и мастер-пароля,
   ночной/дневной заголовок. Позиционируется по пиксельным границам монитора (`MoveWindow`).
+  Внутри поля мастер-пароля — индикатор раскладки «⌨ RU»/«EN» (`LayoutSwitch`): пароль зависит от языка ввода.
+  Клик переключает на следующий язык из `InputLanguageManager.AvailableInputLanguages`; при одной раскладке кнопка
+  неактивна. Надпись обновляется по `InputLanguageChanged` и по таймеру 700 мс (Alt+Shift хук не глушит, Win+Space глушит).
+  Кнопка `Focusable=false`, фокус остаётся в поле пароля.
 - `KeyboardHook.cs` — low-level hook: глушит Win / Alt+Tab / Alt+Esc / Ctrl+Esc / Alt+F4.
   **Ctrl+Alt+Del перехватить нельзя** (ограничение Windows), но сам он заглушку не снимает.
 - `Program.cs` — single-instance mutex, лог агента в `C:\Users\Public\TimeGuard-agent.log` (диагностический, см. §10).

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
@@ -24,6 +25,9 @@ public sealed class OverlayWindow : Window
     private TextBlock? _message;
     private TextBlock? _clock;
     private TextBlock? _schedule;
+    private Button? _layoutButton;
+    private TextBlock? _layoutText;
+    private readonly InputLanguageEventHandler _layoutChanged;
     private Brush Ink => Paint(_night ? "#F5F7FF" : "#091B42");
     private Brush Muted => Paint(_night ? "#B9CBE5" : "#3F5F8B");
     public event Action<string>? CodeSubmitted;
@@ -37,14 +41,22 @@ public sealed class OverlayWindow : Window
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = preview; Topmost = !preview; Title = "TimeGuard";
         FontFamily = new FontFamily("Segoe UI");
+        _layoutChanged = (_, _) => UpdateLayoutIndicator();
         Build();
         Loaded += (_, _) => { if (!_preview) PositionOnScreen(); };
         StateChanged += (_, _) => { if (!_preview && WindowState != WindowState.Normal) WindowState = WindowState.Normal; };
         Closing += (_, e) => { if (!_allowClose && !_preview) e.Cancel = true; };
         _keepTop = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
-        _keepTop.Tick += (_, _) => { UpdateClock(); if (!_preview) AssertForeground(); };
+        // Индикатор раскладки обновляется и по таймеру: событие InputLanguageChanged
+        // приходит не при каждом способе переключения (например, по Ctrl+Shift в другом окне).
+        _keepTop.Tick += (_, _) => { UpdateClock(); UpdateLayoutIndicator(); if (!_preview) AssertForeground(); };
         _keepTop.Start();
-        Closed += (_, _) => _keepTop.Stop();
+        try { InputLanguageManager.Current.InputLanguageChanged += _layoutChanged; } catch (Exception) { }
+        Closed += (_, _) =>
+        {
+            _keepTop.Stop();
+            try { InputLanguageManager.Current.InputLanguageChanged -= _layoutChanged; } catch (Exception) { }
+        };
     }
 
     public void SetMessage(string text) { if (_message is not null) _message.Text = text; }
@@ -69,7 +81,7 @@ public sealed class OverlayWindow : Window
 
     private void Build()
     {
-        _codeBox = null; _masterBox = null; _message = null; _clock = null; _schedule = null;
+        _codeBox = null; _masterBox = null; _message = null; _clock = null; _schedule = null; _layoutButton = null; _layoutText = null;
         var root = new Grid { Background = Paint(_night ? "#051328" : "#CAE4FF") };
         root.Children.Add(new LockArtwork(_night));
         var stage = new Grid { Width = 1536, Height = 1024 };
@@ -110,7 +122,8 @@ public sealed class OverlayWindow : Window
                 body.Children.Add(field);
             }
             _masterBox = new PasswordBox { FontSize = 21, Foreground = Ink, Background = Brushes.Transparent, BorderThickness = new Thickness(0), VerticalContentAlignment = VerticalAlignment.Center };
-            var masterField = Field(_masterBox, "Мастер-пароль", "lock", out var masterHint);
+            // Пароль зависит от раскладки, поэтому рядом с полем показываем текущий язык и даём его сменить.
+            var masterField = Field(_masterBox, "Мастер-пароль", "lock", out var masterHint, LayoutSwitch());
             _masterBox.PasswordChanged += (_, _) => masterHint.Visibility = _masterBox.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
             _masterBox.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) { Submit(); e.Handled = true; } };
             body.Children.Add(masterField);
@@ -149,10 +162,15 @@ public sealed class OverlayWindow : Window
         }
         root.Children.Add(new Viewbox { Stretch = Stretch.Uniform, Child = stage }); Content = root;
     }
-    private Border Field(Control input, string placeholder, string icon, out TextBlock hint)
+    private Border Field(Control input, string placeholder, string icon, out TextBlock hint, UIElement? trailing = null)
     {
         System.Windows.Automation.AutomationProperties.SetName(input, placeholder);
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) }); grid.ColumnDefinitions.Add(new ColumnDefinition());
+        if (trailing is not null)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(trailing, 2); grid.Children.Add(trailing);
+        }
         var symbol = new System.Windows.Shapes.Path { Data = Geometry.Parse(icon == "lock"
             ? "M5,12 L5,8 C5,0 19,0 19,8 L19,12 M2,12 L22,12 L22,29 L2,29 Z M12,19 L12,24"
             : "M15,2 C26,2 26,16 16,17 L9,25 L5,25 L5,29 L0,29 L0,24 L12,12 C7,7 10,2 15,2 Z M17,6 L17,10"), Stroke = Ink, StrokeThickness = 2.6, Width = 27, Height = 31, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -162,6 +180,76 @@ public sealed class OverlayWindow : Window
         area.Children.Add(hint); area.Children.Add(input); grid.Children.Add(area);
         return new Border { Height = 68, Margin = new Thickness(0, 0, 0, 16), CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1.4), BorderBrush = Paint(_night ? "#365176" : "#BECEE3"), Background = Paint(_night ? "#A0172944" : "#BFFFFFFF"), Child = grid };
     }
+    /// <summary>Кнопка «⌨ RU» внутри поля пароля: показывает язык ввода, по клику переключает на следующий.</summary>
+    private Button LayoutSwitch()
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M1,4 L27,4 L27,20 L1,20 Z M5,8 L7,8 M10,8 L12,8 M15,8 L17,8 M20,8 L22,8 M5,12 L7,12 M10,12 L12,12 M15,12 L17,12 M20,12 L22,12 M8,16 L20,16"),
+            Stroke = Ink, StrokeThickness = 2, Width = 24, Height = 16, Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+        });
+        _layoutText = new TextBlock { FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = Ink, VerticalAlignment = VerticalAlignment.Center, MinWidth = 30, TextAlignment = TextAlignment.Center };
+        row.Children.Add(_layoutText);
+        _layoutButton = new Button
+        {
+            Content = row, Background = Paint(_night ? "#2A3F60" : "#E3EEFC"), BorderThickness = new Thickness(0),
+            Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(0, 12, 12, 12), Cursor = System.Windows.Input.Cursors.Hand,
+            Focusable = false, // фокус остаётся в поле пароля, язык меняется для него
+        };
+        System.Windows.Automation.AutomationProperties.SetName(_layoutButton, "Сменить язык ввода");
+        var template = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border)); border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+        border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+        border.SetBinding(Border.PaddingProperty, new System.Windows.Data.Binding("Padding") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+        var content = new FrameworkElementFactory(typeof(ContentPresenter)); content.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(content); template.VisualTree = border;
+        var hover = new Trigger { Property = IsMouseOverProperty, Value = true }; hover.Setters.Add(new Setter(OpacityProperty, .8)); template.Triggers.Add(hover);
+        _layoutButton.Template = template;
+        _layoutButton.Click += (_, _) => SwitchLayout();
+        UpdateLayoutIndicator();
+        return _layoutButton;
+    }
+
+    private static CultureInfo[] AvailableLayouts()
+    {
+        try
+        {
+            return InputLanguageManager.Current.AvailableInputLanguages?.Cast<CultureInfo>().ToArray() ?? [];
+        }
+        catch (Exception) { return []; }
+    }
+
+    private void SwitchLayout()
+    {
+        CultureInfo[] layouts = AvailableLayouts();
+        if (layouts.Length < 2) return;
+        try
+        {
+            CultureInfo current = InputLanguageManager.Current.CurrentInputLanguage;
+            int index = Array.FindIndex(layouts, l => l.Equals(current));
+            InputLanguageManager.Current.CurrentInputLanguage = layouts[(index + 1) % layouts.Length];
+        }
+        catch (Exception) { }
+        UpdateLayoutIndicator();
+        _masterBox?.Focus();
+    }
+
+    private void UpdateLayoutIndicator()
+    {
+        if (_layoutText is null || _layoutButton is null) return;
+        CultureInfo? current = null;
+        try { current = InputLanguageManager.Current.CurrentInputLanguage; } catch (Exception) { }
+        string code = current is null ? "?" : current.TwoLetterISOLanguageName.ToUpperInvariant();
+        if (_layoutText.Text != code) _layoutText.Text = code;
+        int count = AvailableLayouts().Length;
+        _layoutButton.IsEnabled = count > 1;
+        _layoutButton.ToolTip = count > 1
+            ? $"Язык ввода: {current?.NativeName ?? "неизвестно"}. Нажмите, чтобы сменить (или Alt+Shift)."
+            : $"Язык ввода: {current?.NativeName ?? "неизвестно"}. Других раскладок в системе нет.";
+    }
+
     private void Submit()
     {
         if (_masterBox is null) return;
