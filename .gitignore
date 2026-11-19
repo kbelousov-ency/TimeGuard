@@ -1,0 +1,19 @@
+# Build output
+**/bin/
+**/obj/
+installer/stage/
+installer/publish/
+publish-parent/
+publish-parent.zip
+installer/Reset-Time.zip
+
+# Release artifacts are uploaded to GitHub Releases
+installer/dist/*.exe
+installer/dist/*.zip
+installer/dist/*.tgpair.json
+
+# Local pairing and diagnostics
+pairing*.tgpair.json
+TimeGuard-*.log
+TimeGuard-diag.txt
+TimeGuard-проверка.txt

@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TimeGuard.Agent/TimeGuard.Agent.csproj" />
+    <Project Path="src/TimeGuard.Core/TimeGuard.Core.csproj" />
+    <Project Path="src/TimeGuard.Parent/TimeGuard.Parent.csproj" />
+    <Project Path="src/TimeGuard.Service/TimeGuard.Service.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TimeGuard.Core.Tests/TimeGuard.Core.Tests.csproj" />
+    <Project Path="tests/TimeGuard.Parent.Tests/TimeGuard.Parent.Tests.csproj" />
+  </Folder>
+</Solution>
