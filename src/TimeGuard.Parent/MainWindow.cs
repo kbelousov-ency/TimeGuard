@@ -363,15 +363,35 @@ public sealed class MainWindow : Window
         online.Margin = new Thickness(0, 8, 0, 0);
         online.Click += (_, _) => new OnlineControlWindow(_store, _cfg, _onlineServer) { Owner = this }.ShowDialog();
         buttons.Children.Add(online);
+        if (_onlineServer.DiscoveryError is not null)
+        {
+            buttons.Children.Add(new TextBlock
+            {
+                Text = $"Автообнаружение клиента недоступно: не удалось занять UDP-порт {DiscoveryProtocol.Port} " +
+                       "(вероятно, открыт второй экземпляр родителя или клиент на этом же ПК). Укажите имя или IP клиента вручную.",
+                ToolTip = _onlineServer.DiscoveryError,
+                Foreground = Rgb(0xB4, 0x53, 0x09),
+                FontSize = 13,
+                Margin = new Thickness(4, 5, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
         var update = SecondaryButton(DrawDownloadIcon(Blue, 22), "Проверить обновление");
         update.Margin = new Thickness(0, 8, 0, 0);
         var updateStatus = new TextBlock { Text = "", Foreground = Muted, FontSize = 13, Margin = new Thickness(4, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
         update.Click += async (_, _) =>
         {
             update.IsEnabled = false;
-            updateStatus.Text = "Подготовка загрузки…";
+            updateStatus.Text = "Проверка обновлений…";
             try
             {
+                UpdateCheckResult check = await UpdateChecker.CheckAsync();
+                if (!check.IsNewer)
+                {
+                    updateStatus.Text = $"Установлена последняя версия ({check.Current.ToString(3)}).";
+                    return;
+                }
+                updateStatus.Text = $"Найдена версия {check.Latest.ToString(3)} (установлена {check.Current.ToString(3)}). Подготовка загрузки…";
                 var progress = new Progress<TimeGuard.Core.DownloadProgress>(p =>
                 {
                     updateStatus.Text = p.Percent is int percent ? $"Загрузка обновления: {percent}%" : $"Загрузка обновления: {p.ReceivedBytes / 1024 / 1024} МБ";
@@ -379,7 +399,7 @@ public sealed class MainWindow : Window
                 await UpdateLauncher.DownloadAndLaunchAsync("TimeGuard-Parent-Setup.exe", progress);
                 updateStatus.Text = "Установщик запущен с правами администратора.";
             }
-            catch (Exception ex) { updateStatus.Text = $"Обновление не запущено: {ex.Message}"; }
+            catch (Exception ex) { updateStatus.Text = $"Не удалось проверить или скачать обновление: {ex.Message}"; }
             finally { update.IsEnabled = true; }
         };
         buttons.Children.Add(update);
@@ -397,7 +417,7 @@ public sealed class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var left = new StackPanel { Orientation = Orientation.Horizontal };
         left.Children.Add(DrawInfoIcon(18));
-        left.Children.Add(new TextBlock { Text = "TimeGuard 1.0.0", FontSize = 15, Foreground = Muted, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        left.Children.Add(new TextBlock { Text = $"TimeGuard {UpdateChecker.CurrentVersion.ToString(3)}", FontSize = 15, Foreground = Muted, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
         var right = new TextBlock { Text = "Больше баланса. Яркое завтра.", FontSize = 15, Foreground = Muted, HorizontalAlignment = HorizontalAlignment.Right };

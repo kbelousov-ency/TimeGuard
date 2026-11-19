@@ -15,8 +15,7 @@ public static class HistoryClient
         CancellationToken cancellationToken)
     {
         Uri endpoint = BuildEndpoint(host, HistoryProtocol.Route, $"limit={Math.Clamp(limit, 1, HistoryProtocol.MaxEntries)}");
-        long timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        using var request = CreateRequest(HttpMethod.Get, endpoint, config, timestamp, HistoryProtocol.Route);
+        using var request = CreateRequest(HttpMethod.Get, endpoint, config, HistoryProtocol.Route, null);
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
         using HttpResponseMessage response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -36,9 +35,8 @@ public static class HistoryClient
         CancellationToken cancellationToken)
     {
         Uri endpoint = BuildEndpoint(host, HistoryProtocol.ControlRoute, string.Empty);
-        long timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        using var request = CreateRequest(HttpMethod.Post, endpoint, config, timestamp, HistoryProtocol.ControlRoute);
-        request.Content = new StringContent(JsonSerializer.Serialize(command, Json), System.Text.Encoding.UTF8, "application/json");
+        using var request = CreateRequest(
+            HttpMethod.Post, endpoint, config, HistoryProtocol.ControlRoute, JsonSerializer.SerializeToUtf8Bytes(command, Json));
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
         using HttpResponseMessage response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -49,15 +47,9 @@ public static class HistoryClient
         return JsonSerializer.Deserialize<OnlineControlResult>(body, Json) ?? new OnlineControlResult { Message = "Пустой ответ клиента." };
     }
 
-    private static HttpRequestMessage CreateRequest(HttpMethod method, Uri endpoint, ParentConfig config, long timestamp, string route)
-    {
-        var request = new HttpRequestMessage(method, endpoint);
-        request.Headers.TryAddWithoutValidation(HistoryProtocol.MachineHeader, config.ClientMachineId);
-        request.Headers.TryAddWithoutValidation(HistoryProtocol.TimestampHeader, timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        request.Headers.TryAddWithoutValidation(HistoryProtocol.SignatureHeader,
-            HistoryProtocol.SignForRoute(Convert.FromBase64String(config.SecretBase64), config.ClientMachineId, timestamp, route));
-        return request;
-    }
+    private static HttpRequestMessage CreateRequest(HttpMethod method, Uri endpoint, ParentConfig config, string route, byte[]? jsonBody)
+        => HistoryProtocol.CreateSignedRequest(
+            method, endpoint, Convert.FromBase64String(config.SecretBase64), config.ClientMachineId, route, jsonBody);
 
     private static Uri BuildEndpoint(string host, string path, string query)
     {

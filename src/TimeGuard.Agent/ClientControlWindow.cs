@@ -90,9 +90,16 @@ public sealed class ClientControlWindow : Window
         _updateButton.IsEnabled = false;
         _updateProgress.Visibility = Visibility.Visible;
         _updateProgress.IsIndeterminate = true;
-        _message.Text = "Подготовка загрузки обновления…";
+        _message.Text = "Проверка обновлений…";
         try
         {
+            TimeGuard.Core.UpdateCheckResult check = await TimeGuard.Core.UpdateChecker.CheckAsync();
+            if (!check.IsNewer)
+            {
+                _message.Text = $"Установлена последняя версия ({check.Current.ToString(3)}).";
+                return;
+            }
+            _message.Text = $"Найдена версия {check.Latest.ToString(3)} (установлена {check.Current.ToString(3)}). Подготовка загрузки…";
             var progress = new Progress<TimeGuard.Core.DownloadProgress>(p =>
             {
                 if (p.Percent is int percent)
@@ -107,7 +114,7 @@ public sealed class ClientControlWindow : Window
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true, Verb = "runas" });
             _message.Text = "Установщик запущен с правами администратора.";
         }
-        catch (Exception ex) { _message.Text = $"Не удалось скачать обновление: {ex.Message}"; }
+        catch (Exception ex) { _message.Text = $"Не удалось проверить или скачать обновление: {ex.Message}"; }
         finally
         {
             _updateButton.IsEnabled = true;

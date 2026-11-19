@@ -74,15 +74,25 @@ public sealed class Worker(
         var lastPolicy = DateTime.MinValue;
 
         var activity = new ActivityLog(AppContext.BaseDirectory);
-        await using var historyServer = new HistoryServer(
-            log,
-            config,
-            limit => activity.ReadRecent(limit),
-            command => HandleOnlineCommand(_engine!, command));
-        historyServer.Start(stoppingToken);
-        await using var discovery = new ParentDiscoveryListener(config.GetSecret(), config.MachineId);
-        discovery.ParentDiscovered += host => _discoveredParentHost = host;
-        discovery.Start(stoppingToken);
+        // Сетевые компоненты необязательны для учёта времени: любой их сбой только логируется.
+        await using var network = new NetworkComponents(log);
+        network.Start(
+            "сервер истории",
+            () => new HistoryServer(
+                log,
+                config,
+                limit => activity.ReadRecent(limit),
+                command => HandleOnlineCommand(_engine!, command)),
+            server => server.Start(stoppingToken));
+        network.Start(
+            "обнаружение родителя",
+            () =>
+            {
+                var listener = new ParentDiscoveryListener(log, config.GetSecret(), config.MachineId);
+                listener.ParentDiscovered += host => _discoveredParentHost = host;
+                return listener;
+            },
+            listener => listener.Start(stoppingToken));
         activity.Write("Старт ПК (служба запущена).");
         var lastWall = DateTime.Now;
         var lastProcPoll = DateTime.MinValue;
@@ -195,6 +205,42 @@ public sealed class Worker(
         if (_pipe is not null)
         {
             await _pipe.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Владеет сетевыми компонентами: создание, запуск и остановка не бросают исключений.</summary>
+    private sealed class NetworkComponents(ILogger log) : IAsyncDisposable
+    {
+        private readonly List<IAsyncDisposable> _items = [];
+
+        public void Start<T>(string name, Func<T> create, Action<T> start) where T : class, IAsyncDisposable
+        {
+            T? item = null;
+            try
+            {
+                item = create();
+                start(item);
+                _items.Add(item);
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "Не удалось запустить компонент «{Name}»; учёт времени продолжается без него.", name);
+                if (item is not null)
+                {
+                    try { item.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+                    catch (Exception) { }
+                }
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            foreach (IAsyncDisposable item in _items)
+            {
+                try { await item.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception) { }
+            }
+            _items.Clear();
         }
     }
 
@@ -357,22 +403,21 @@ public sealed class Worker(
             Port = parsed.IsDefaultPort ? HistoryProtocol.Port + 1 : parsed.Port,
             Path = HistoryProtocol.ParentRequestRoute,
         };
-        long timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        using var request = new HttpRequestMessage(HttpMethod.Post, builder.Uri);
-        request.Headers.TryAddWithoutValidation(HistoryProtocol.MachineHeader, config.MachineId);
-        request.Headers.TryAddWithoutValidation(HistoryProtocol.TimestampHeader, timestamp.ToString());
-        request.Headers.TryAddWithoutValidation(HistoryProtocol.SignatureHeader,
-            HistoryProtocol.SignForRoute(config.GetSecret(), config.MachineId, timestamp, HistoryProtocol.ParentRequestRoute));
-        request.Content = new StringContent(JsonSerializer.Serialize(new OnlineTimeRequest
+        byte[] requestBody = JsonSerializer.SerializeToUtf8Bytes(new OnlineTimeRequest
         {
             MachineId = config.MachineId,
             Minutes = minutes,
             Reason = "Запрос из приложения клиента",
-        }), Encoding.UTF8, "application/json");
-        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        });
+        using HttpRequestMessage request = HistoryProtocol.CreateSignedRequest(
+            HttpMethod.Post, builder.Uri, config.GetSecret(), config.MachineId, HistoryProtocol.ParentRequestRoute, requestBody);
+        // родитель ждёт решения до 5 минут и затем ещё отправляет команду add на этот ПК
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(6) };
         using HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode) return new SubmitResult(false, $"Родитель вернул HTTP {(int)response.StatusCode}.", 0);
+        // Ответ не подписан, а адрес родителя может подменить ребёнок: минуты здесь не добавляются.
+        // При одобрении родитель сам присылает подписанную команду add на /timeguard/control.
         OnlineTimeResponse result = JsonSerializer.Deserialize<OnlineTimeResponse>(body) ?? new OnlineTimeResponse { Message = "Пустой ответ родителя." };
         return new SubmitResult(result.Accepted, result.Message, result.AddedMinutes);
     }

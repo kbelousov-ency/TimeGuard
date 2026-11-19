@@ -36,6 +36,7 @@ public sealed class OnlineControlWindow : Window
 
         _timer = new TextBlock { Text = "Статус ещё не запрошен", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 14) };
         panel.Children.Add(_timer);
+        _status = new TextBlock { Text = "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Foreground = Brushes.DarkSlateGray };
 
         var row = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 10) };
         row.Children.Add(Command("+15 минут", () => ControlAsync("add", 15)));
@@ -59,10 +60,26 @@ public sealed class OnlineControlWindow : Window
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(new TextBlock { Text = $"+{request.Minutes} мин. {request.Reason}", VerticalAlignment = VerticalAlignment.Center });
                 var approve = new Button { Content = "Одобрить", Margin = new Thickness(6, 0, 0, 0) };
-                approve.Click += (_, _) => { _server.Resolve(request.Id, true); row.Visibility = Visibility.Collapsed; };
-                Grid.SetColumn(approve, 1); row.Children.Add(approve);
                 var reject = new Button { Content = "Отклонить", Margin = new Thickness(6, 0, 0, 0) };
-                reject.Click += (_, _) => { _server.Resolve(request.Id, false); row.Visibility = Visibility.Collapsed; };
+                async Task ResolveAsync(bool accepted)
+                {
+                    approve.IsEnabled = reject.IsEnabled = false;
+                    if (accepted) _status.Text = $"Добавляем +{request.Minutes} мин. на компьютере ребёнка…";
+                    OnlineTimeResponse? response = await _server.ResolveAsync(request.Id, accepted);
+                    row.Visibility = Visibility.Collapsed;
+                    if (response is null)
+                    {
+                        _status.Foreground = Brushes.DarkSlateGray;
+                        _status.Text = "Запрос уже не актуален: истёк срок ожидания.";
+                        return;
+                    }
+                    _status.Foreground = accepted && !response.Accepted ? Brushes.Firebrick : Brushes.DarkSlateGray;
+                    _status.Text = response.Message;
+                    if (response.Accepted) _timer.Text = $"Осталось: {Format(response.RemainingSeconds)}";
+                }
+                approve.Click += async (_, _) => await ResolveAsync(true);
+                Grid.SetColumn(approve, 1); row.Children.Add(approve);
+                reject.Click += async (_, _) => await ResolveAsync(false);
                 Grid.SetColumn(reject, 2); row.Children.Add(reject);
                 requests.Children.Add(row);
             });
@@ -70,7 +87,6 @@ public sealed class OnlineControlWindow : Window
         foreach (PendingOnlineRequest pending in _server.Pending) AddRequest(pending);
         _server.RequestReceived += AddRequest;
         _server.ClientDiscovered += host => Dispatcher.Invoke(() => _host.Text = host);
-        _status = new TextBlock { Text = "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), Foreground = Brushes.DarkSlateGray };
         panel.Children.Add(_status);
         Content = panel;
         Loaded += async (_, _) => await ControlAsync("status", 0);
@@ -94,10 +110,12 @@ public sealed class OnlineControlWindow : Window
             _config.ClientHost = host;
             _store.Save(_config);
             _timer.Text = $"Осталось: {Format(result.RemainingSeconds)}";
+            _status.Foreground = Brushes.DarkSlateGray;
             _status.Text = result.Message;
         }
         catch (Exception ex)
         {
+            _status.Foreground = Brushes.Firebrick;
             _status.Text = $"Не удалось связаться с клиентом: {ex.Message}";
         }
     }

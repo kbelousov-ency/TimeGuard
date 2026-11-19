@@ -15,6 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify tag matches project version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props
+          $version = @($props.Project.PropertyGroup.Version)[0]
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match Version $version in Directory.Build.props"
+          }
+          foreach ($f in "installer/client.iss", "installer/parent.iss") {
+            if (-not (Select-String -Path $f -SimpleMatch "$version" -Quiet)) {
+              throw "$f does not contain version $version"
+            }
+          }
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

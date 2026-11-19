@@ -1,0 +1,10 @@
+<Project>
+
+  <!-- Единый источник версии приложений. При релизе совпадает с тегом vX.Y.Z,
+       AppVersion в installer/client.iss и "#define Version" в installer/parent.iss
+       (release.yml проверяет совпадение). По ней кнопки «Проверить обновление» решают, есть ли новая версия. -->
+  <PropertyGroup>
+    <Version>1.2.4</Version>
+  </PropertyGroup>
+
+</Project>

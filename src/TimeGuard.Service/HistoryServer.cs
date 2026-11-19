@@ -15,6 +15,7 @@ public sealed class HistoryServer : IAsyncDisposable
     private readonly GuardConfig _config;
     private readonly Func<int, IReadOnlyList<ActivityRecord>> _history;
     private readonly Func<OnlineControlCommand, OnlineControlResult>? _control;
+    private readonly ReplayGuard _replay = new();
     private CancellationTokenSource? _cts;
     private TcpListener? _listener;
     private Task? _loop;
@@ -70,55 +71,41 @@ public sealed class HistoryServer : IAsyncDisposable
     {
         using (client)
         using (NetworkStream stream = client.GetStream())
-        using (var reader = new StreamReader(stream, Encoding.ASCII, false, 4096, leaveOpen: true))
         {
             try
             {
-                string? requestLine = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(requestLine))
+                LanHttpRequest? request;
+                try
+                {
+                    request = await LanHttpRequest.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
+                }
+                catch (LanHttpException ex)
+                {
+                    await WriteResponseAsync(stream, ex.StatusCode, ex.Reason, "").ConfigureAwait(false);
+                    return;
+                }
+                if (request is null)
                 {
                     return;
                 }
 
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < 32; i++)
-                {
-                    string? line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-                    if (line is null || line.Length == 0)
-                    {
-                        break;
-                    }
-                    int separator = line.IndexOf(':');
-                    if (separator > 0)
-                    {
-                        headers[line[..separator].Trim()] = line[(separator + 1)..].Trim();
-                    }
-                }
-
-                string[] parts = requestLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length != 3 ||
-                    (!string.Equals(parts[0], "GET", StringComparison.OrdinalIgnoreCase) &&
-                     !string.Equals(parts[0], "POST", StringComparison.OrdinalIgnoreCase)))
+                if (!string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase))
                 {
                     await WriteResponseAsync(stream, 405, "Method Not Allowed", "").ConfigureAwait(false);
                     return;
                 }
 
-                if (!Uri.TryCreate("http://localhost" + parts[1], UriKind.Absolute, out Uri? uri) ||
+                if (!Uri.TryCreate("http://localhost" + request.Target, UriKind.Absolute, out Uri? uri) ||
                     (uri.AbsolutePath != HistoryProtocol.Route && uri.AbsolutePath != HistoryProtocol.ControlRoute))
                 {
                     await WriteResponseAsync(stream, 404, "Not Found", "").ConfigureAwait(false);
                     return;
                 }
 
-                if (!headers.TryGetValue(HistoryProtocol.MachineHeader, out string? machine) ||
-                    !string.Equals(machine, _config.MachineId, StringComparison.Ordinal) ||
-                    !headers.TryGetValue(HistoryProtocol.TimestampHeader, out string? timestampText) ||
-                    !long.TryParse(timestampText, out long timestamp) ||
-                    !headers.TryGetValue(HistoryProtocol.SignatureHeader, out string? signature) ||
-                    !HistoryProtocol.IsValidSignatureForRoute(
-                        _config.GetSecret(), machine, timestamp, signature,
-                        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), uri.AbsolutePath))
+                if (!HistoryProtocol.Authenticate(
+                        request, _config.GetSecret(), _config.MachineId, uri.AbsolutePath,
+                        _replay, DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
                 {
                     await WriteResponseAsync(stream, 401, "Unauthorized", "").ConfigureAwait(false);
                     return;
@@ -126,22 +113,12 @@ public sealed class HistoryServer : IAsyncDisposable
 
                 if (uri.AbsolutePath == HistoryProtocol.ControlRoute)
                 {
-                    if (!string.Equals(parts[0], "POST", StringComparison.OrdinalIgnoreCase) || _control is null)
+                    if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) || _control is null)
                     {
                         await WriteResponseAsync(stream, 405, "Method Not Allowed", "").ConfigureAwait(false);
                         return;
                     }
-                    int contentLength = headers.TryGetValue("Content-Length", out string? lengthText) &&
-                        int.TryParse(lengthText, out int parsedLength) ? parsedLength : 0;
-                    char[] chars = new char[Math.Clamp(contentLength, 0, 32 * 1024)];
-                    int read = 0;
-                    while (read < chars.Length)
-                    {
-                        int count = await reader.ReadAsync(chars.AsMemory(read, chars.Length - read), cancellationToken).ConfigureAwait(false);
-                        if (count == 0) break;
-                        read += count;
-                    }
-                    OnlineControlCommand? command = JsonSerializer.Deserialize<OnlineControlCommand>(new string(chars, 0, read), Json);
+                    OnlineControlCommand? command = JsonSerializer.Deserialize<OnlineControlCommand>(request.BodyText, Json);
                     if (command is null)
                     {
                         await WriteResponseAsync(stream, 400, "Bad Request", "").ConfigureAwait(false);
