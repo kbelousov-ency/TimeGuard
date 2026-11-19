@@ -9,6 +9,8 @@ public static class IpcKind
     public const string Status = "Status";         // служба → агент (push)
     public const string SubmitCode = "SubmitCode"; // агент → служба
     public const string SubmitMaster = "SubmitMaster"; // агент → служба
+    public const string ResetTimer = "ResetTimer"; // агент → служба
+    public const string RequestTime = "RequestTime"; // агент → служба
     public const string Result = "Result";         // служба → агент (ответ)
 }
 
@@ -30,6 +32,7 @@ public sealed class IpcMessage
 
     // SubmitCode / SubmitMaster
     public string? Text { get; set; }
+    public int? Minutes { get; set; }
 
     // Result
     public bool? Accepted { get; set; }
@@ -56,6 +59,8 @@ public sealed class IpcMessage
     public static IpcMessage Hello() => new() { Kind = IpcKind.Hello };
     public static IpcMessage Code(string code) => new() { Kind = IpcKind.SubmitCode, Text = code };
     public static IpcMessage Master(string pwd) => new() { Kind = IpcKind.SubmitMaster, Text = pwd };
+    public static IpcMessage Reset() => new() { Kind = IpcKind.ResetTimer };
+    public static IpcMessage TimeRequest(string host, int minutes) => new() { Kind = IpcKind.RequestTime, Text = host, Minutes = minutes };
 }
 
 /// <summary>Сериализация newline-delimited JSON.</summary>

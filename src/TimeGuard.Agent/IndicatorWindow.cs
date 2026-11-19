@@ -45,7 +45,6 @@ public sealed class IndicatorWindow : Window
         };
         _timer.MouseLeftButtonUp += (_, e) =>
         {
-            if (!_canExtend) return;
             ExtendRequested?.Invoke();
             e.Handled = true;
         };

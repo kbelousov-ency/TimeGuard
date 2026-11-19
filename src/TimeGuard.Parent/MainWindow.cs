@@ -40,6 +40,7 @@ public sealed class MainWindow : Window
     private readonly ParentStore _store;
     private ParentConfig _cfg;
     private TimeGuardCodec _codec;
+    private readonly ParentOnlineServer _onlineServer;
 
     private int _minutes = 30;
     private TextBox _minutesBox = null!;
@@ -51,6 +52,9 @@ public sealed class MainWindow : Window
         _store = store;
         _cfg = cfg;
         _codec = new TimeGuardCodec(Convert.FromBase64String(cfg.SecretBase64), cfg.ClientMachineId);
+        _onlineServer = new ParentOnlineServer(cfg);
+        _onlineServer.Start();
+        Closed += async (_, _) => await _onlineServer.DisposeAsync();
 
         Title = "TimeGuard — родитель";
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -350,6 +354,18 @@ public sealed class MainWindow : Window
         history.Margin = new Thickness(0, 8, 0, 0);
         history.Click += (_, _) => new HistoryWindow(_store, _cfg) { Owner = this }.ShowDialog();
         buttons.Children.Add(history);
+        var online = SecondaryButton(DrawRefresh(22), "Онлайн-управление");
+        online.Margin = new Thickness(0, 8, 0, 0);
+        online.Click += (_, _) => new OnlineControlWindow(_store, _cfg, _onlineServer) { Owner = this }.ShowDialog();
+        buttons.Children.Add(online);
+        var update = SecondaryButton(DrawDownloadIcon(Blue, 22), "Проверить обновление");
+        update.Margin = new Thickness(0, 8, 0, 0);
+        update.Click += async (_, _) =>
+        {
+            try { _hint.Text = "Скачиваю обновление…"; await UpdateLauncher.DownloadAndLaunchAsync("TimeGuard-Parent-Setup.exe"); _hint.Text = "Установщик обновления запущен."; }
+            catch (Exception ex) { _hint.Text = $"Обновление не запущено: {ex.Message}"; }
+        };
+        buttons.Children.Add(update);
         Grid.SetColumn(buttons, 1);
         row.Children.Add(buttons);
 

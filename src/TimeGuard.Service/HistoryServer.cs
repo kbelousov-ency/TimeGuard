@@ -14,6 +14,7 @@ public sealed class HistoryServer : IAsyncDisposable
     private readonly ILogger _log;
     private readonly GuardConfig _config;
     private readonly Func<int, IReadOnlyList<ActivityRecord>> _history;
+    private readonly Func<OnlineControlCommand, OnlineControlResult>? _control;
     private CancellationTokenSource? _cts;
     private TcpListener? _listener;
     private Task? _loop;
@@ -21,11 +22,13 @@ public sealed class HistoryServer : IAsyncDisposable
     public HistoryServer(
         ILogger log,
         GuardConfig config,
-        Func<int, IReadOnlyList<ActivityRecord>> history)
+        Func<int, IReadOnlyList<ActivityRecord>> history,
+        Func<OnlineControlCommand, OnlineControlResult>? control = null)
     {
         _log = log;
         _config = config;
         _history = history;
+        _control = control;
     }
 
     public void Start(CancellationToken stopToken)
@@ -93,14 +96,16 @@ public sealed class HistoryServer : IAsyncDisposable
                 }
 
                 string[] parts = requestLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length != 3 || !string.Equals(parts[0], "GET", StringComparison.OrdinalIgnoreCase))
+                if (parts.Length != 3 ||
+                    (!string.Equals(parts[0], "GET", StringComparison.OrdinalIgnoreCase) &&
+                     !string.Equals(parts[0], "POST", StringComparison.OrdinalIgnoreCase)))
                 {
                     await WriteResponseAsync(stream, 405, "Method Not Allowed", "").ConfigureAwait(false);
                     return;
                 }
 
                 if (!Uri.TryCreate("http://localhost" + parts[1], UriKind.Absolute, out Uri? uri) ||
-                    !string.Equals(uri.AbsolutePath, HistoryProtocol.Route, StringComparison.Ordinal))
+                    (uri.AbsolutePath != HistoryProtocol.Route && uri.AbsolutePath != HistoryProtocol.ControlRoute))
                 {
                     await WriteResponseAsync(stream, 404, "Not Found", "").ConfigureAwait(false);
                     return;
@@ -111,11 +116,39 @@ public sealed class HistoryServer : IAsyncDisposable
                     !headers.TryGetValue(HistoryProtocol.TimestampHeader, out string? timestampText) ||
                     !long.TryParse(timestampText, out long timestamp) ||
                     !headers.TryGetValue(HistoryProtocol.SignatureHeader, out string? signature) ||
-                    !HistoryProtocol.IsValidSignature(
+                    !HistoryProtocol.IsValidSignatureForRoute(
                         _config.GetSecret(), machine, timestamp, signature,
-                        DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), uri.AbsolutePath))
                 {
                     await WriteResponseAsync(stream, 401, "Unauthorized", "").ConfigureAwait(false);
+                    return;
+                }
+
+                if (uri.AbsolutePath == HistoryProtocol.ControlRoute)
+                {
+                    if (!string.Equals(parts[0], "POST", StringComparison.OrdinalIgnoreCase) || _control is null)
+                    {
+                        await WriteResponseAsync(stream, 405, "Method Not Allowed", "").ConfigureAwait(false);
+                        return;
+                    }
+                    int contentLength = headers.TryGetValue("Content-Length", out string? lengthText) &&
+                        int.TryParse(lengthText, out int parsedLength) ? parsedLength : 0;
+                    char[] chars = new char[Math.Clamp(contentLength, 0, 32 * 1024)];
+                    int read = 0;
+                    while (read < chars.Length)
+                    {
+                        int count = await reader.ReadAsync(chars.AsMemory(read, chars.Length - read), cancellationToken).ConfigureAwait(false);
+                        if (count == 0) break;
+                        read += count;
+                    }
+                    OnlineControlCommand? command = JsonSerializer.Deserialize<OnlineControlCommand>(new string(chars, 0, read), Json);
+                    if (command is null)
+                    {
+                        await WriteResponseAsync(stream, 400, "Bad Request", "").ConfigureAwait(false);
+                        return;
+                    }
+                    OnlineControlResult result = _control(command);
+                    await WriteResponseAsync(stream, 200, "OK", JsonSerializer.Serialize(result, Json), "application/json; charset=utf-8").ConfigureAwait(false);
                     return;
                 }
 

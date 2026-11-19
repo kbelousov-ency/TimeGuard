@@ -34,6 +34,8 @@ public sealed class PipeClient : IDisposable
 
     public void SendCode(string code) => Send(IpcMessage.Code(code));
     public void SendMaster(string password) => Send(IpcMessage.Master(password));
+    public void ResetTimer() => Send(IpcMessage.Reset());
+    public void RequestTime(string parentHost, int minutes) => Send(IpcMessage.TimeRequest(parentHost, minutes));
 
     private void Send(IpcMessage message)
     {

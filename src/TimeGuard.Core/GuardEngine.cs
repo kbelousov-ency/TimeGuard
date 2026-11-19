@@ -171,6 +171,20 @@ public sealed class GuardEngine
         }
     }
 
+    public SubmitResult AddMinutes(int minutes)
+    {
+        lock (_gate)
+        {
+            if (minutes is < 1 or > TimeGuardCodec.MaxMinutes)
+            {
+                return new SubmitResult(false, $"Минуты должны быть в диапазоне 1..{TimeGuardCodec.MaxMinutes}.", 0);
+            }
+            _state.RemainingSeconds += minutes * 60L;
+            _store.SaveState(_state);
+            return new SubmitResult(true, $"Добавлено {minutes} мин.", minutes);
+        }
+    }
+
     public void Persist()
     {
         lock (_gate)

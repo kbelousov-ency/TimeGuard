@@ -18,6 +18,7 @@ public sealed class AgentApp : Application
     private bool _canExtend;
     private long _remaining;
     private ExtendTimeWindow? _extension;
+    private ClientControlWindow? _controlWindow;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -49,6 +50,7 @@ public sealed class AgentApp : Application
                 {
                     _primaryOverlay?.SetMessage(msg);
                     _extension?.SetResult(ok, msg);
+                    _controlWindow?.SetResult(ok, msg);
                 });
             _pipe.Disconnected += () =>
                 Dispatcher.Invoke(() =>
@@ -57,6 +59,7 @@ public sealed class AgentApp : Application
                     _indicator?.SetCanExtend(false);
                     _indicator?.SetRemaining(0);
                     _extension?.Close();
+                    _controlWindow?.Close();
                 });
             _pipe.Start();
             Program.Log("OnStartup: канал запущен, ждём статус от службы.");
@@ -73,6 +76,7 @@ public sealed class AgentApp : Application
         Program.Log($"Статус от службы: остаток={remainingSeconds} c, locked={locked}, night={night}, было_locked={_locked}");
         _indicator?.SetRemaining(remainingSeconds);
         _remaining = remainingSeconds;
+        _controlWindow?.SetRemaining(remainingSeconds);
         _canExtend = !locked && !night && remainingSeconds > 0;
         _indicator?.SetCanExtend(_canExtend);
         if (!_canExtend) _extension?.Close();
@@ -96,15 +100,15 @@ public sealed class AgentApp : Application
 
     private void OpenExtension()
     {
-        if (!_canExtend) return;
-        if (_extension is not null) { _extension.Activate(); return; }
-        var window = new ExtendTimeWindow();
-        _extension = window;
+        if (_controlWindow is not null) { _controlWindow.Activate(); return; }
+        var window = new ClientControlWindow();
+        _controlWindow = window;
         window.SetRemaining(_remaining);
-        window.CodeSubmitted += code => { if (_canExtend) _pipe.SendCode(code); };
-        window.Closed += (_, _) => _extension = null;
-        window.Show();
-        window.Activate();
+        window.CodeSubmitted += code => _pipe.SendCode(code);
+        window.ResetRequested += () => _pipe.ResetTimer();
+        window.TimeRequested += (host, minutes) => _pipe.RequestTime(host, minutes);
+        window.Closed += (_, _) => _controlWindow = null;
+        window.Show(); window.Activate();
     }
 
     private void ShowOverlays(bool night, int? start, int? end)

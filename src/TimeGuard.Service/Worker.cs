@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TimeGuard.Core;
@@ -58,7 +61,9 @@ public sealed class Worker(
             log,
             code => _engine!.SubmitCode(code),
             master => _engine!.SubmitMaster(master),
-            () => _engine!.Status);
+            () => _engine!.Status,
+            () => _engine!.ResetToZero(),
+            (host, minutes) => RequestParentTimeAsync(config, host, minutes));
         _pipe.Start(stoppingToken);
 
         string agentPath = Path.Combine(AppContext.BaseDirectory, "TimeGuard.Agent.exe");
@@ -68,7 +73,11 @@ public sealed class Worker(
         var lastPolicy = DateTime.MinValue;
 
         var activity = new ActivityLog(AppContext.BaseDirectory);
-        await using var historyServer = new HistoryServer(log, config, limit => activity.ReadRecent(limit));
+        await using var historyServer = new HistoryServer(
+            log,
+            config,
+            limit => activity.ReadRecent(limit),
+            command => HandleOnlineCommand(_engine!, command));
         historyServer.Start(stoppingToken);
         activity.Write("Старт ПК (служба запущена).");
         var lastWall = DateTime.Now;
@@ -296,6 +305,72 @@ public sealed class Worker(
             activity.CloseProcess(process.Name, pid, process.StartedAt, closedAt);
         }
         tracked.Clear();
+    }
+
+    private static OnlineControlResult HandleOnlineCommand(GuardEngine engine, OnlineControlCommand command)
+    {
+        if (command.Action == "status")
+        {
+            GuardStatus current = engine.Status;
+            return new OnlineControlResult { Accepted = true, Message = "Статус получен.", RemainingSeconds = current.RemainingSeconds, IsLocked = current.IsLocked };
+        }
+        SubmitResult result = command.Action switch
+        {
+            "add" => engine.AddMinutes(command.Minutes),
+            "reset" => Reset(engine),
+            _ => new SubmitResult(false, "Неизвестная онлайн-команда.", 0),
+        };
+        GuardStatus status = engine.Status;
+        return new OnlineControlResult
+        {
+            Accepted = result.Accepted,
+            Message = result.Message,
+            RemainingSeconds = status.RemainingSeconds,
+            IsLocked = status.IsLocked,
+        };
+    }
+
+    private static SubmitResult Reset(GuardEngine engine)
+    {
+        engine.ResetToZero();
+        return new SubmitResult(true, "Таймер сброшен.", 0);
+    }
+
+    private static async Task<SubmitResult> RequestParentTimeAsync(GuardConfig config, string host, int minutes)
+    {
+        if (minutes is < 1 or > TimeGuardCodec.MaxMinutes)
+        {
+            return new SubmitResult(false, "Некорректное количество минут.", 0);
+        }
+        string value = host.Trim();
+        if (!value.Contains("://", StringComparison.Ordinal)) value = "http://" + value;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? parsed))
+        {
+            return new SubmitResult(false, "Адрес родителя указан неверно.", 0);
+        }
+        var builder = new UriBuilder(parsed)
+        {
+            Port = parsed.IsDefaultPort ? HistoryProtocol.Port + 1 : parsed.Port,
+            Path = HistoryProtocol.ParentRequestRoute,
+        };
+        long timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        using var request = new HttpRequestMessage(HttpMethod.Post, builder.Uri);
+        request.Headers.TryAddWithoutValidation(HistoryProtocol.MachineHeader, config.MachineId);
+        request.Headers.TryAddWithoutValidation(HistoryProtocol.TimestampHeader, timestamp.ToString());
+        request.Headers.TryAddWithoutValidation(HistoryProtocol.SignatureHeader,
+            HistoryProtocol.SignForRoute(config.GetSecret(), config.MachineId, timestamp, HistoryProtocol.ParentRequestRoute));
+        request.Content = new StringContent(JsonSerializer.Serialize(new OnlineTimeRequest
+        {
+            MachineId = config.MachineId,
+            Minutes = minutes,
+            Reason = "Запрос из приложения клиента",
+        }), Encoding.UTF8, "application/json");
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        using HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
+        string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode) return new SubmitResult(false, $"Родитель вернул HTTP {(int)response.StatusCode}.", 0);
+        OnlineTimeResponse result = JsonSerializer.Deserialize<OnlineTimeResponse>(body) ?? new OnlineTimeResponse { Message = "Пустой ответ родителя." };
+        return new SubmitResult(result.Accepted, result.Message, result.AddedMinutes);
     }
 
     private DateTime _lastAgentAttempt = DateTime.MinValue;

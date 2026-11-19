@@ -24,6 +24,8 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly ILogger _log;
     private readonly Func<string, SubmitResult> _onCode;
     private readonly Func<string, SubmitResult> _onMaster;
+    private readonly Action _onReset;
+    private readonly Func<string, int, Task<SubmitResult>> _onTimeRequest;
     private readonly Func<GuardStatus> _statusProvider;
 
     private readonly object _writeGate = new();
@@ -35,11 +37,15 @@ public sealed class PipeServer : IAsyncDisposable
         ILogger log,
         Func<string, SubmitResult> onCode,
         Func<string, SubmitResult> onMaster,
-        Func<GuardStatus> statusProvider)
+        Func<GuardStatus> statusProvider,
+        Action? onReset = null,
+        Func<string, int, Task<SubmitResult>>? onTimeRequest = null)
     {
         _log = log;
         _onCode = onCode;
         _onMaster = onMaster;
+        _onReset = onReset ?? (() => { });
+        _onTimeRequest = onTimeRequest ?? ((_, _) => Task.FromResult(new SubmitResult(false, "Онлайн-запрос недоступен.", 0)));
         _statusProvider = statusProvider;
     }
 
@@ -154,7 +160,22 @@ public sealed class PipeServer : IAsyncDisposable
             case IpcKind.SubmitMaster:
                 Reply(_onMaster(msg.Text ?? string.Empty));
                 break;
+            case IpcKind.ResetTimer:
+                _onReset();
+                PushStatus(_statusProvider());
+                break;
+            case IpcKind.RequestTime:
+                _ = ReplyTimeRequestAsync(msg.Text ?? string.Empty, msg.Minutes ?? 0);
+                break;
         }
+    }
+
+    private async Task ReplyTimeRequestAsync(string host, int minutes)
+    {
+        SubmitResult result;
+        try { result = await _onTimeRequest(host, minutes).ConfigureAwait(false); }
+        catch (Exception ex) { result = new SubmitResult(false, ex.Message, 0); }
+        Reply(result);
     }
 
     private static NamedPipeServerStream CreateServer()
