@@ -2,7 +2,7 @@
 SetupIconFile=..\assets\app.ico
 AppId=TimeGuard.Client
 AppName=TimeGuard Client
-AppVersion=1.1.0
+AppVersion=1.1.1
 DefaultDirName={autopf}\TimeGuard
 PrivilegesRequired=admin
 OutputDir=dist

@@ -1,4 +1,4 @@
-﻿#define Version "1.1.0"
+﻿#define Version "1.1.1"
 [Setup]
 SetupIconFile=..\assets\app.ico
 AppId=TimeGuard.Parent
