@@ -4,7 +4,7 @@
        AppVersion в installer/client.iss и "#define Version" в installer/parent.iss
        (release.yml проверяет совпадение). По ней кнопки «Проверить обновление» решают, есть ли новая версия. -->
   <PropertyGroup>
-    <Version>1.2.5</Version>
+    <Version>1.2.6</Version>
   </PropertyGroup>
 
 </Project>
