@@ -206,19 +206,31 @@ public class GuardEngineTests
     // --- ночной запрет (комендантский час) ---
 
     [Fact]
-    public void At_night_screen_is_locked_even_with_time_left()
+    public void At_night_screen_stays_unlocked_while_time_left()
     {
         var (engine, _, _) = Build(remaining: 3600, localHour: 23);
-        Assert.True(engine.Status.IsLocked);
+        Assert.False(engine.Status.IsLocked);
         Assert.True(engine.Status.Night);
     }
 
     [Fact]
-    public void At_night_time_is_not_consumed()
+    public void At_night_time_is_consumed()
     {
         var (engine, _, _) = Build(remaining: 3600, localHour: 2);
         var (s, _) = engine.Tick(60, userSessionActive: true);
-        Assert.Equal(3600, s.RemainingSeconds); // ночью бюджет не тратится
+        Assert.Equal(3540, s.RemainingSeconds); // остаток дорасходуется и ночью
+        Assert.False(s.IsLocked);
+    }
+
+    [Fact]
+    public void At_night_screen_locks_when_time_runs_out()
+    {
+        var (engine, _, _) = Build(remaining: 30, localHour: 23);
+        var (s, justLocked) = engine.Tick(60, userSessionActive: true);
+        Assert.True(justLocked);
+        Assert.True(s.IsLocked);
+        Assert.True(s.Night);
+        Assert.Equal(0, s.RemainingSeconds);
     }
 
     [Fact]
@@ -282,8 +294,9 @@ public class GuardEngineTests
 
         Assert.False(engine.SubmitCode(code).Accepted);
         var (status, _) = engine.Tick(60, true);
-        Assert.Equal(100, status.RemainingSeconds);
+        Assert.Equal(100, status.RemainingSeconds); // после мастер-разблокировки время ночью не идёт
         Assert.False(status.IsLocked);
+        Assert.True(status.CurfewOverridden);
     }
 
     [Fact]

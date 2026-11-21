@@ -140,8 +140,8 @@ public sealed class Worker(
 
             // Опрос приложений выполняется только пока реально списывается время.
             // Это исключает фоновые процессы при заблокированном экране Windows,
-            // ночью и после исчерпания лимита.
-            bool timerRunning = chargeTime && !status.IsLocked && !status.Night && status.RemainingSeconds > 0;
+            // ночью после мастер-разблокировки и после исчерпания лимита.
+            bool timerRunning = chargeTime && !status.IsLocked && !status.CurfewOverridden && status.RemainingSeconds > 0;
             if (timerRunning && !_timerWasRunning)
             {
                 _timerStartedAt = DateTimeOffset.Now;

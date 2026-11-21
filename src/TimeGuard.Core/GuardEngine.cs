@@ -1,6 +1,6 @@
 namespace TimeGuard.Core;
 
-public readonly record struct GuardStatus(long RemainingSeconds, bool IsLocked, bool Night, int CurfewStartHour = 21, int CurfewEndHour = 9);
+public readonly record struct GuardStatus(long RemainingSeconds, bool IsLocked, bool Night, int CurfewStartHour = 21, int CurfewEndHour = 9, bool CurfewOverridden = false);
 
 public readonly record struct SubmitResult(bool Accepted, string Message, int AddedMinutes);
 
@@ -9,10 +9,11 @@ public readonly record struct SubmitResult(bool Accepted, string Message, int Ad
 /// кодов от агента идут под одним замком.
 ///
 /// Блокировка выводится из двух правил:
-///  - днём: экран заблокирован, когда бюджет времени исчерпан (RemainingSeconds ≤ 0);
-///  - ночью (комендантский час, напр. 21:00–09:00): экран заблокирован всегда,
-///    время не списывается, разблокировать можно ТОЛЬКО мастер-паролем — он
-///    снимает запрет до конца этой ночи.
+///  - экран заблокирован, когда бюджет времени исчерпан (RemainingSeconds ≤ 0);
+///  - ночью (комендантский час, напр. 21:00–09:00) остаток дорасходуется как днём,
+///    но продлить его нельзя: коды отклоняются, после исчерпания разблокировать
+///    можно ТОЛЬКО мастер-паролем — он снимает запрет до конца этой ночи и
+///    останавливает списание.
 ///
 /// Коды привязаны ко времени (см. <see cref="TimeGuardCodec"/>). Защита от
 /// повтора — оконная: принятый код запоминается по тегу до истечения его окна.
@@ -60,7 +61,8 @@ public sealed class GuardEngine
 
     /// <summary>
     /// Списать реально прошедшие секунды (по монотонному счётчику), пока есть
-    /// активная сессия и сейчас НЕ ночь. Возвращает статус и флаг перехода в блок.
+    /// активная сессия и ночной запрет не снят мастер-паролем.
+    /// Возвращает статус и флаг перехода в блок.
     /// </summary>
     public (GuardStatus Status, bool JustLocked) Tick(long elapsedSeconds, bool userSessionActive)
     {
@@ -69,8 +71,7 @@ public sealed class GuardEngine
             bool wasLocked = IsLocked();
             RefreshCurfew();
 
-            bool night = IsCurfewNow();
-            if (userSessionActive && !night && _state.RemainingSeconds > 0 && elapsedSeconds > 0)
+            if (userSessionActive && !IsCurfewOverriddenNow() && _state.RemainingSeconds > 0 && elapsedSeconds > 0)
             {
                 _state.RemainingSeconds -= elapsedSeconds;
                 if (_state.RemainingSeconds < 0)
@@ -207,16 +208,13 @@ public sealed class GuardEngine
     // --- внутреннее ---
 
     private GuardStatus BuildStatus() =>
-        new(Math.Max(0, _state.RemainingSeconds), IsLocked(), IsCurfewNow(), _config.CurfewStartHour, _config.CurfewEndHour);
+        new(Math.Max(0, _state.RemainingSeconds), IsLocked(), IsCurfewNow(), _config.CurfewStartHour, _config.CurfewEndHour,
+            IsCurfewOverriddenNow());
 
-    private bool IsLocked()
-    {
-        if (IsCurfewNow())
-        {
-            return !_state.CurfewOverridden;
-        }
-        return _state.RemainingSeconds <= 0;
-    }
+    private bool IsLocked() => !IsCurfewOverriddenNow() && _state.RemainingSeconds <= 0;
+
+    /// <summary>Ночь, и запрет на неё снят мастер-паролем: экран открыт, время не идёт.</summary>
+    private bool IsCurfewOverriddenNow() => _state.CurfewOverridden && IsCurfewNow();
 
     private bool IsCurfewNow()
     {
